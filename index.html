@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fiche de présence</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="assets/template.js"></script>
+<script src="assets/signature.js"></script>
+</head>
+<body>
+<header>
+  <h1>Fiche de présence</h1>
+  <p class="sub">Remplis tes heures, génère le PDF du mois.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Infos</h2>
+    <div class="grid">
+      <label>Nom Prénom<input id="name" placeholder="Tom Leclercq"></label>
+      <label>Responsable de la formation<input id="responsable" placeholder="Gwendal Judic"></label>
+      <label>Fait à Bordeaux, le<input id="faitLe" placeholder="05/10/2026"></label>
+      <label>Mois<select id="month"></select></label>
+    </div>
+    <div class="grid">
+      <div class="sig">
+        <span class="lbl">Signature</span>
+        <img id="sigPreview" alt="signature">
+        <div class="row">
+          <label class="btn small">Changer…<input id="sigFile" type="file" accept="image/*" hidden></label>
+          <button id="sigReset" class="small ghost">Par défaut</button>
+        </div>
+      </div>
+      <div class="sig">
+        <span class="lbl">Modèle PDF</span>
+        <span id="tplInfo" class="muted"></span>
+        <div class="row">
+          <label class="btn small">Autre modèle…<input id="tplFile" type="file" accept="application/pdf" hidden></label>
+          <button id="tplReset" class="small ghost">Par défaut</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="head">
+      <h2>Heures</h2>
+      <div class="row">
+        <button id="fillWeek" class="small ghost" title="Met 4H matin + 4H après-midi sur tous les jours de semaine vides">Lun–ven 4+4</button>
+        <button id="clearAll" class="small ghost">Tout vider</button>
+      </div>
+    </div>
+    <p class="muted">Matin / après-midi en heures (face à face). Coche « auto » à côté d'une demi-journée si c'était du travail en autonomie. La signature est posée sur chaque demi-journée renseignée.</p>
+    <table id="days">
+      <thead><tr><th>Date</th><th>Matin</th><th>Après-midi</th><th></th><th>Total</th></tr></thead>
+      <tbody></tbody>
+      <tfoot><tr><td colspan="4">Total du mois</td><td id="total">0H</td></tr></tfoot>
+    </table>
+  </section>
+
+  <div class="actions">
+    <button id="preview" class="ghost">Aperçu</button>
+    <button id="generate">Télécharger le PDF</button>
+  </div>
+  <p id="status" class="muted"></p>
+  <iframe id="frame" hidden></iframe>
+</main>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
