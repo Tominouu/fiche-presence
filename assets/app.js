@@ -21,7 +21,7 @@ let sigCache = null; // { src, dataUrl, ratio }
 // ---------- stockage ----------
 
 function loadState() {
-  const empty = { name: "", responsable: "", faitLe: "", month: null, sig: null, hours: {} };
+  const empty = { name: "", responsable: "", faitLe: "", month: null, sig: null, icsUrl: "", hours: {} };
   try {
     return { ...empty, ...JSON.parse(localStorage.getItem(STORE_KEY) || "{}") };
   } catch {
@@ -187,7 +187,134 @@ function prepareSignature(src) {
 }
 
 function currentSig() {
-  return state.sig || window.DEFAULT_SIGNATURE;
+  return state.sig || window.DEFAULT_SIGNATURE || null;
+}
+
+function showSig() {
+  $("sigPreview").hidden = !currentSig();
+  if (currentSig()) $("sigPreview").src = currentSig();
+}
+
+// ---------- import de l'agenda (.ics) ----------
+
+const NOON = 13; // limite matin / après-midi, en heures
+const AUTO_RE = /autonom/i;
+// L'intra n'autorise pas la lecture depuis une autre page : on passe par le relais du VPS.
+const INTRA_CAL = "https://intra.mmibordeaux.com/calendrier/";
+const AGENDA_PROXY = "https://api.tom-leclercq.fr/fiche-presence/agenda/";
+
+// "20261005T080000Z" (UTC), "20261005T080000" (heure locale) ou "20261005" (journée entière → null)
+function parseIcsDate(v) {
+  const m = /^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)(Z?)$/.exec(v);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, s, z] = m.map((x, i) => (i && i < 7 ? Number(x) : x));
+  return z ? new Date(Date.UTC(y, mo - 1, d, h, mi, s)) : new Date(y, mo - 1, d, h, mi, s);
+}
+
+// "PT1H30M", "P1D"…
+function parseIcsDuration(v) {
+  const m = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(v);
+  if (!m) return 0;
+  const [w, d, h, mi, s] = m.slice(1).map((x) => Number(x) || 0);
+  return ((((w * 7 + d) * 24 + h) * 60 + mi) * 60 + s) * 1000;
+}
+
+function parseIcs(text) {
+  const lines = text.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
+  const events = [];
+  let ev = null;
+  for (const line of lines) {
+    if (line === "BEGIN:VEVENT") { ev = {}; continue; }
+    if (line === "END:VEVENT") {
+      if (ev.start && ev.status !== "CANCELLED") {
+        const end = ev.end || (ev.duration ? new Date(ev.start.getTime() + ev.duration) : null);
+        if (end > ev.start) events.push({ start: ev.start, end, summary: ev.summary || "" });
+      }
+      ev = null;
+      continue;
+    }
+    if (!ev) continue;
+    const i = line.indexOf(":");
+    if (i < 0) continue;
+    const key = line.slice(0, i).split(";")[0].toUpperCase();
+    const val = line.slice(i + 1).trim();
+    if (key === "DTSTART") ev.start = parseIcsDate(val);
+    else if (key === "DTEND") ev.end = parseIcsDate(val);
+    else if (key === "DURATION") ev.duration = parseIcsDuration(val);
+    else if (key === "SUMMARY") ev.summary = val.replace(/\\([,;\\])/g, "$1").replace(/\\n/gi, " ");
+    else if (key === "STATUS") ev.status = val.toUpperCase();
+  }
+  return events;
+}
+
+// Durée totale (en heures) d'intervalles [début, fin] en heures, chevauchements fusionnés.
+function mergedHours(spans) {
+  spans.sort((a, b) => a[0] - b[0]);
+  let total = 0, cur = null;
+  for (const [s, e] of spans) {
+    if (cur && s <= cur[1]) cur[1] = Math.max(cur[1], e);
+    else { if (cur) total += cur[1] - cur[0]; cur = [s, e]; }
+  }
+  if (cur) total += cur[1] - cur[0];
+  return Math.round(total * 4) / 4;
+}
+
+// Heures matin / après-midi de chaque jour du mois, d'après les événements.
+function hoursFromEvents(events, page) {
+  const out = {};
+  for (const d of page.dates) {
+    const day = parseDate(d.str);
+    const dayEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+    const half = { m: { spans: [], auto: true }, a: { spans: [], auto: true } };
+    for (const ev of events) {
+      if (ev.end <= day || ev.start >= dayEnd) continue;
+      const s = Math.max(0, (ev.start - day) / 3600000);
+      const e = Math.min(24, (ev.end - day) / 3600000);
+      for (const [k, lo, hi] of [["m", 0, NOON], ["a", NOON, 24]]) {
+        if (Math.min(e, hi) <= Math.max(s, lo)) continue;
+        half[k].spans.push([Math.max(s, lo), Math.min(e, hi)]);
+        if (!AUTO_RE.test(ev.summary)) half[k].auto = false;
+      }
+    }
+    const m = mergedHours(half.m.spans), a = mergedHours(half.a.spans);
+    if (m || a) out[d.str] = { m, a, autoM: !!m && half.m.auto, autoA: !!a && half.a.auto };
+  }
+  return out;
+}
+
+function importIcs(text) {
+  const page = pages.find((p) => p.index === Number($("month").value));
+  if (!page) throw new Error("aucun mois sélectionné");
+  const events = parseIcs(text);
+  if (!events.length) throw new Error("aucun événement trouvé dans l'agenda");
+  const found = hoursFromEvents(events, page);
+  const days = Object.keys(found);
+  if (!days.length) throw new Error(`aucun cours en ${page.label} dans l'agenda`);
+  const filled = page.dates.filter((d) => state.hours[d.str]).length;
+  if (filled && !confirm(`Remplacer les heures déjà saisies pour ${page.label} par celles de l'agenda ?`)) return;
+  for (const d of page.dates) delete state.hours[d.str];
+  Object.assign(state.hours, found);
+  save();
+  renderDays();
+  setStatus(`${page.label} : ${days.length} jours importés depuis l'agenda.`);
+}
+
+async function importIcsUrl() {
+  let url = $("icsUrl").value.trim().replace(/^webcal:\/\//i, "https://");
+  if (!url) return setStatus("Colle d'abord le lien de ton agenda.");
+  if (url.startsWith(INTRA_CAL)) url = AGENDA_PROXY + url.slice(INTRA_CAL.length);
+  setStatus("Téléchargement de l'agenda…");
+  let text;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    text = await res.text();
+  } catch (e) {
+    console.error(e);
+    return setStatus("Le navigateur n'a pas pu lire ce lien (le site bloque sans doute l'accès depuis une autre page). " +
+      "Ouvre le lien dans un onglet pour télécharger le fichier .ics, puis utilise « Fichier .ics… ».");
+  }
+  importIcs(text);
 }
 
 // ---------- génération ----------
@@ -202,6 +329,7 @@ async function buildPdf() {
   const [pdfPage] = await doc.copyPages(src, [page.index]);
   doc.addPage(pdfPage);
   const font = await doc.embedFont(StandardFonts.Helvetica);
+  if (!currentSig()) throw new Error("ajoute d'abord ta signature (bouton « Changer… »)");
   const sig = await prepareSignature(currentSig());
   const sigImg = await doc.embedPng(sig.dataUrl);
   const black = rgb(0, 0, 0);
@@ -359,15 +487,25 @@ function bindUi() {
     renderDays();
   });
 
-  $("sigPreview").src = currentSig();
+  $("icsUrl").value = state.icsUrl || "";
+  $("icsUrl").addEventListener("input", () => { state.icsUrl = $("icsUrl").value.trim(); save(); });
+  $("icsImport").addEventListener("click", () => importIcsUrl().catch((e) => setStatus("Erreur : " + e.message)));
+  $("icsFile").addEventListener("change", async () => {
+    const f = $("icsFile").files[0];
+    if (!f) return;
+    try { importIcs(await f.text()); } catch (e) { setStatus("Erreur : " + e.message); }
+    $("icsFile").value = "";
+  });
+
+  showSig();
   $("sigFile").addEventListener("change", () => {
     const f = $("sigFile").files[0];
     if (!f) return;
     const r = new FileReader();
-    r.onload = () => { state.sig = r.result; save(); $("sigPreview").src = currentSig(); };
+    r.onload = () => { state.sig = r.result; save(); showSig(); };
     r.readAsDataURL(f);
   });
-  $("sigReset").addEventListener("click", () => { state.sig = null; save(); $("sigPreview").src = currentSig(); });
+  $("sigReset").addEventListener("click", () => { state.sig = null; save(); showSig(); });
 
   $("tplFile").addEventListener("change", async () => {
     const f = $("tplFile").files[0];

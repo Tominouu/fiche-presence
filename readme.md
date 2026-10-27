@@ -11,6 +11,17 @@ Remplir sa fiche d'émargement mensuelle du CFA Bordeaux Montaigne en 30 seconde
 
 Tout est sauvegardé dans le navigateur (heures, nom, signature) : on peut revenir compléter un mois plus tard.
 
+### Import depuis l'emploi du temps
+
+Coller le lien `.ics` de son agenda (intra MMI ou n'importe quel agenda) puis **Importer le mois** : les heures du mois affiché sont remplies d'après les cours (avant 13h = matin, après = après-midi ; un cours dont le titre contient « autonomie » est mis en colonne autonomie). On peut aussi importer un fichier `.ics` téléchargé.
+
+L'intra n'autorise pas la lecture de l'agenda depuis une autre page (pas d'en-tête CORS) : les liens `https://intra.mmibordeaux.com/calendrier/…` passent par un relais sur le VPS, `https://api.tom-leclercq.fr/fiche-presence/agenda/…` (Caddy, voir ci-dessous).
+
+## En ligne
+
+Le site est hébergé sur Netlify : <https://presence.tom-leclercq.fr/>.
+Le relais de l'agenda est le bloc `api.tom-leclercq.fr` de `/etc/caddy/Caddyfile` sur le VPS.
+
 Ce qui est écrit sur la fiche :
 
 - nom, total journalier, heures matin / après-midi (en colonne « autonomie » si la case *auto* de la demi-journée est cochée) ;

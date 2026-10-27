@@ -90,6 +90,8 @@ tfoot td { font-weight: 700; border-top: 2px solid var(--line); padding-top: 8px
   th:nth-child(4) { display: none; }
   td input[type=number] { width: 52px; }
 }
+.ics { margin: 12px 0 4px; }
+.ics input { flex: 1; min-width: 200px; }
 td.half { white-space: nowrap; }
 label.auto { display: inline-flex; flex-direction: row; align-items: center; gap: 3px; margin-left: 6px; font-size: 12px; cursor: pointer; }
 label.auto input { margin: 0; }
